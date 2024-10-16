@@ -133,16 +133,14 @@ func processUserRegistration(userData UserData) error {
 	defer os.Remove(tempFile.Name())
 
 	writer := csv.NewWriter(tempFile)
-	log.Println("The writer is: ", writer)
 	if err := writer.WriteAll(records); err != nil {
-		log.Println("Couldn't write all: ", err)
 		return fmt.Errorf("error writing CSV data: %v", err)
 	}
 	writer.Flush()
 
 	// Call fwconsole to import the extension
 	importCmd := exec.Command(
-		"/usr/local/bin/fwconsole-wrapper.sh",
+		"fwconsole",
 		"bulkimport",
 		"--type=extensions",
 		tempFile.Name(),
@@ -157,7 +155,7 @@ func processUserRegistration(userData UserData) error {
 	log.Printf("fwconsole import output: %s", importOutput)
 
 	// Reload fwconsole
-	reloadCmd := exec.Command("/usr/local/bin/fwconsole-wrapper.sh", "reload")
+	reloadCmd := exec.Command("fwconsole", "reload")
 	reloadOutput, err := reloadCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("error executing fwconsole reload: %v\nOutput: %s", err, reloadOutput)
