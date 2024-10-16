@@ -91,7 +91,7 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 
 func processUserRegistration(userData UserData) error {
 	// Read the CSV template
-	templateFile, err := os.Open("extension_template.csv")
+	templateFile, err := os.Open("templates/extension_template.csv")
 	if err != nil {
 		return fmt.Errorf("error opening CSV template: %v", err)
 	}
