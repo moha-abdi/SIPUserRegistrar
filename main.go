@@ -126,13 +126,16 @@ func processUserRegistration(userData UserData) error {
 
 	// Write the updated CSV data to a temporary file
 	tempFile, err := os.CreateTemp("", "extension_*.csv")
+	log.Println("The created temp file is: ", tempFile.Name())
 	if err != nil {
 		return fmt.Errorf("error creating temporary file: %v", err)
 	}
 	defer os.Remove(tempFile.Name())
 
 	writer := csv.NewWriter(tempFile)
+	log.Println("The writer is: ", writer)
 	if err := writer.WriteAll(records); err != nil {
+		log.Println("Couldn't write all: ", err)
 		return fmt.Errorf("error writing CSV data: %v", err)
 	}
 	writer.Flush()
@@ -146,6 +149,7 @@ func processUserRegistration(userData UserData) error {
 		"--replace",
 	)
 	importOutput, err := importCmd.CombinedOutput()
+	log.Printf("Imported output is: %v\n Error is: %s", err, importOutput)
 	if err != nil {
 		return fmt.Errorf("error executing fwconsole import: %v\nOutput: %s", err, importOutput)
 	}
