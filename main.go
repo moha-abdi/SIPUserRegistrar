@@ -103,24 +103,28 @@ func processUserRegistration(userData UserData) error {
 		return fmt.Errorf("error reading CSV template: %v", err)
 	}
 
+	if len(records) < 2 {
+		return fmt.Errorf("CSV template does not have enough rows")
+	}
+
 	// Update the CSV data with user information
-	for i, record := range records {
-		for j, field := range record {
-			switch records[0][j] { // Use header row to identify the column
-			case "extension", "id", "user", "outboundcid", "emergency_cid", "cid_masquerade":
-				field = userData.Extension
-			case "password", "secret":
-				field = userData.Password
-			case "name", "description":
-				field = userData.Name
-			case "callerid":
-				field = fmt.Sprintf("%s <%s>", userData.Name, userData.Extension)
-			case "defaultuser":
-				field = userData.Extension
-			case "devicedata":
-				field = userData.Extension
-			}
-			records[i][j] = field
+	for j := range records[0] {
+		fmt.Println("Records i is")
+		switch records[0][j] { // Use header row to identify the column
+		case "extension", "id", "user", "outboundcid", "emergency_cid", "cid_masquerade":
+			records[1][j] = userData.Extension
+		case "password", "secret":
+			records[1][j] = userData.Password
+		case "name", "description":
+			records[1][j] = userData.Name
+		case "dial":
+			records[1][j] = fmt.Sprintf("PJSIP/%s", userData.Extension)
+		case "callerid":
+			records[1][j] = fmt.Sprintf("%s <%s>", userData.Name, userData.Extension)
+		case "defaultuser":
+			records[1][j] = userData.Extension
+		case "devicedata":
+			records[1][j] = userData.Extension
 		}
 	}
 
