@@ -109,11 +109,10 @@ func processUserRegistration(userData UserData) error {
 
 	// Update the CSV data with user information
 	for j := range records[0] {
-		fmt.Println("Records i is")
 		switch records[0][j] { // Use header row to identify the column
 		case "extension", "id", "user", "outboundcid", "emergency_cid", "cid_masquerade":
 			records[1][j] = userData.Extension
-		case "password", "secret":
+		case "secret":
 			records[1][j] = userData.Password
 		case "name", "description":
 			records[1][j] = userData.Name
