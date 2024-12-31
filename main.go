@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/csv"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -70,13 +72,34 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userData UserData
-	if err := json.Unmarshal(body, &userData); err != nil {
-		http.Error(w, "Invalid JSON data", http.StatusBadRequest)
+	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil {
+		http.Error(w, "Invalid Content-Type", http.StatusBadRequest)
 		return
 	}
 
-	if err := processUserRegistration(userData); err != nil {
+	var users []UserData
+	switch contentType {
+	case "application/json":
+		var singleUser UserData
+		if err := json.Unmarshal(body, &singleUser); err != nil {
+			http.Error(w, "Invalid JSON data", http.StatusBadRequest)
+			return
+		}
+		users = []UserData{singleUser}
+	case "text/csv":
+		var err error
+		users, err = parseCSV(body)
+		if err != nil {
+			http.Error(w, "Error parsing CSV", http.StatusBadRequest)
+			return
+		}
+	default:
+		http.Error(w, "Unsupported Content-Type", http.StatusUnsupportedMediaType)
+		return
+	}
+
+	if err := processUserRegistration(users); err != nil {
 		http.Error(
 			w,
 			fmt.Sprintf("Error processing registration: %v", err),
@@ -89,7 +112,52 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "User registration processed successfully!")
 }
 
-func processUserRegistration(userData UserData) error {
+func parseCSV(data []byte) ([]UserData, error) {
+	reader := csv.NewReader(bytes.NewReader(data))
+	headers, err := reader.Read()
+	if err != nil {
+		return nil, fmt.Errorf("error reading headers: %v", err)
+	}
+
+	expectedHeaders := []string{"extension", "password", "name"}
+	if !compareHeaders(headers, expectedHeaders) {
+		return nil, fmt.Errorf("invalid CSV format. Expected headers: extension, password, name")
+	}
+
+	var users []UserData
+	for {
+		record, err := reader.Read()
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("error reading CSV row: %v", err)
+		}
+
+		users = append(users, UserData{
+			Extension: record[0],
+			Password:  record[1],
+			Name:      record[2],
+		})
+	}
+
+	return users, nil
+}
+
+func compareHeaders(actual, expected []string) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	for i, header := range actual {
+		if header != expected[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func processUserRegistration(users []UserData) error {
 	// Read the CSV template
 	templateFile, err := os.Open("templates/extension_template.csv")
 	if err != nil {
@@ -97,56 +165,63 @@ func processUserRegistration(userData UserData) error {
 	}
 	defer templateFile.Close()
 
-	reader := csv.NewReader(templateFile)
-	records, err := reader.ReadAll()
+	templateReader := csv.NewReader(templateFile)
+	headers, err := templateReader.Read()
 	if err != nil {
-		return fmt.Errorf("error reading CSV template: %v", err)
+		return fmt.Errorf("error reading template headers: %v", err)
 	}
 
-	if len(records) < 2 {
-		return fmt.Errorf("CSV template does not have enough rows")
-	}
-
-	// Update the CSV data with user information
-	for j := range records[0] {
-		switch records[0][j] { // Use header row to identify the column
-		case "extension", "id", "user", "outboundcid", "emergency_cid", "cid_masquerade":
-			records[1][j] = userData.Extension
-		case "secret":
-			records[1][j] = userData.Password
-		case "name", "description":
-			records[1][j] = userData.Name
-		case "dial":
-			records[1][j] = fmt.Sprintf("PJSIP/%s", userData.Extension)
-		case "callerid":
-			records[1][j] = fmt.Sprintf("%s <%s>", userData.Name, userData.Extension)
-		case "defaultuser":
-			records[1][j] = userData.Extension
-		case "devicedata":
-			records[1][j] = userData.Extension
-		}
-	}
-
-	// Write the updated CSV data to a temporary file
-	tempFile, err := os.CreateTemp("", "extension_*.csv")
-	log.Println("The created temp file is: ", tempFile.Name())
+	// Create output file for bulkimport
+	outputFile, err := os.CreateTemp("", "extension_*.csv")
 	if err != nil {
 		return fmt.Errorf("error creating temporary file: %v", err)
 	}
-	defer os.Remove(tempFile.Name())
+	defer os.Remove(outputFile.Name())
 
-	writer := csv.NewWriter(tempFile)
-	if err := writer.WriteAll(records); err != nil {
-		return fmt.Errorf("error writing CSV data: %v", err)
+	writer := csv.NewWriter(outputFile)
+
+	// Write headers to the output file first
+	if err := writer.Write(headers); err != nil {
+		return fmt.Errorf("error writing headers: %v", err)
 	}
+
+	for _, user := range users {
+		row := make([]string, len(headers))
+		for i, header := range headers {
+			switch header {
+			case "extension", "id", "user", "outboundcid", "emergency_cid", "cid_masquerade":
+				row[i] = user.Extension
+			case "secret":
+				row[i] = user.Password
+			case "name", "description":
+				row[i] = user.Name
+			case "dial":
+				row[i] = fmt.Sprintf("PJSIP/%s", user.Extension)
+			case "callerid":
+				row[i] = fmt.Sprintf("%s <%s>", user.Name, user.Extension)
+			case "defaultuser":
+				row[i] = user.Extension
+			case "devicedata":
+				row[i] = user.Extension
+			}
+		}
+
+		if err := writer.Write(row); err != nil {
+			return fmt.Errorf("error writing row: %v", err)
+		}
+	}
+
 	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return fmt.Errorf("error flushing writer: %v", err)
+	}
 
 	// Call fwconsole to import the extension
 	importCmd := exec.Command(
 		"fwconsole",
 		"bulkimport",
 		"--type=extensions",
-		tempFile.Name(),
+		outputFile.Name(),
 		"--replace",
 	)
 	importOutput, err := importCmd.CombinedOutput()
