@@ -170,6 +170,10 @@ func processUserRegistration(users []UserData) error {
 	if err != nil {
 		return fmt.Errorf("error reading template headers: %v", err)
 	}
+	defaultValues, err := templateReader.Read()
+	if err != nil {
+		return fmt.Errorf("error getting default values: %v", err)
+	}
 
 	// Create output file for bulkimport
 	outputFile, err := os.CreateTemp("", "extension_*.csv")
@@ -203,6 +207,8 @@ func processUserRegistration(users []UserData) error {
 				row[i] = user.Extension
 			case "devicedata":
 				row[i] = user.Extension
+			default:
+				row[i] = defaultValues[i]
 			}
 		}
 
